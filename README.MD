@@ -2,7 +2,7 @@
 
 Django 기반의 Retrieval-Augmented Generation (RAG) 챗봇 시스템입니다. 문서를 업로드하고 내용에 기반한 질문응답을 할 수 있습니다.
 
-![RAG Chatbot Demo](https://via.placeholder.com/800x400?text=RAG+Chatbot+Screenshot)
+![RAG Chatbot Demo](\ss2025-08-25.png)
 
 ## 🌟 주요 기능
 
