@@ -30,6 +30,9 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 3. 패키지 설치
 pip install -r requirements.txt
+pip install langchain-community
+pip install python-docx
+
 
 # 4. 데이터베이스 설정
 python manage.py makemigrations
