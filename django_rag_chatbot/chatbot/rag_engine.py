@@ -139,50 +139,67 @@ class SimpleRAGEngine:
             return 0
     
     def get_rag_response(self, query):
-        """RAG 기반 응답 생성 (대폭 개선)"""
-        relevant_docs = self.search_documents(query, k=3)
-        
-        if not relevant_docs:
-            return "죄송합니다. 관련된 문서를 찾을 수 없습니다."
-        
-        # 응답 생성
-        return self._generate_formatted_response(query, relevant_docs)
+        """RAG 기반 응답 생성 (안전한 버전)"""
+        try:
+            relevant_docs = self.search_documents(query, k=3)
+            
+            if not relevant_docs:
+                return "죄송합니다. 관련된 문서를 찾을 수 없습니다."
+            
+            # 간단하고 안전한 응답 생성
+            return self._generate_safe_response(query, relevant_docs)
+            
+        except Exception as e:
+            print(f"RAG 응답 생성 오류: {e}")
+            return f"검색은 완료했지만 응답 처리 중 문제가 발생했습니다. 오류: {str(e)}"
     
-    def _generate_formatted_response(self, query, docs):
-        """포맷된 응답 생성"""
+    def _generate_safe_response(self, query, docs):
+        """안전한 응답 생성 (오류 방지)"""
         try:
             response_parts = [f'💡 **"{query}"**에 대한 답변:\n']
             
-            # 가장 관련성 높은 문서에서 핵심 정보 추출
-            main_content = docs[0].page_content
+            # 가장 관련성 높은 문서 1개만 사용
+            main_doc = docs[0]
+            content = main_doc.page_content
+            source = main_doc.metadata.get('source', '문서')
             
-            # 1. 핵심 요약 (첫 번째 문서에서)
-            summary = self._extract_key_summary(main_content, query)
-            if summary:
-                response_parts.append(f"**📋 요약:**")
-                response_parts.append(f"{summary}\n")
+            # 텍스트 정리 (간단하게)
+            clean_content = self._simple_clean_text(content)
             
-            # 2. 상세 정보들 (여러 문서에서)
-            response_parts.append("**📚 상세 내용:**")
+            # 300자로 제한
+            if len(clean_content) > 300:
+                clean_content = clean_content[:300] + "..."
             
-            for i, doc in enumerate(docs[:2], 1):  # 상위 2개 문서만
-                source = doc.metadata.get('source', '문서')
-                clean_content = self._clean_and_format_content(doc.page_content)
-                
-                # 300자로 제한하고 문장 단위로 자르기
-                truncated = self._smart_truncate(clean_content, 300)
-                
-                response_parts.append(f"\n**[{i}] 출처: {source}**")
-                response_parts.append(f"{truncated}")
-            
-            # 3. 추가 도움말
-            response_parts.append("\n💡 **더 구체적인 질문**을 하시면 더 정확한 답변을 드릴 수 있어요!")
+            response_parts.append(f"**📚 출처:** {source}")
+            response_parts.append(f"**내용:**\n{clean_content}")
+            response_parts.append("\n💡 더 구체적인 질문을 해주시면 더 정확한 답변을 드릴게요!")
             
             return "\n".join(response_parts)
             
         except Exception as e:
-            # 오류 발생시 기본 응답
-            return f"관련 내용을 찾았지만 응답 생성 중 오류가 발생했습니다. 다시 질문해주세요."
+            print(f"안전한 응답 생성 오류: {e}")
+            # 최후의 수단 - 아주 간단한 응답
+            try:
+                content = docs[0].page_content[:200] + "..."
+                return f'💡 **"{query}"**에 대한 답변:\n\n{content}\n\n💡 더 자세한 내용이 필요하시면 다시 질문해주세요!'
+            except:
+                return "문서를 찾았지만 응답을 생성하는 중 오류가 발생했습니다."
+    
+    def _simple_clean_text(self, text):
+        """간단한 텍스트 정리 (오류 방지)"""
+        try:
+            # 기본 정리만
+            text = re.sub(r'\s+', ' ', text)  # 연속 공백 제거
+            text = text.strip()
+            
+            # 간단한 띄어쓰기만 적용
+            text = re.sub(r'([.!?])([가-힣A-Za-z])', r'\1 \2', text)  # 마침표 뒤
+            text = re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', text)      # 영어-한글
+            text = re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', text)      # 한글-영어
+            
+            return text
+        except:
+            return text  # 오류 발생시 원본 반환
     
     def _extract_key_summary(self, content, query):
         """핵심 요약 추출"""
@@ -222,15 +239,186 @@ class SimpleRAGEngine:
         return valid_sentences
     
     def _clean_and_format_content(self, content):
-        """내용 정리 및 포맷팅"""
-        # 연속된 공백 제거
+        """내용 정리 및 포맷팅 (띄어쓰기 복원 포함)"""
+        # 1. 기본 정리
         content = re.sub(r'\s+', ' ', content)
-        
-        # 특수문자나 이상한 문자 정리
         content = re.sub(r'[^\w\s가-힣,.!?():\-]', '', content)
+        content = content.strip()
         
-        # 앞뒤 공백 제거
-        return content.strip()
+        # 2. 띄어쓰기 복원 (고급 버전 사용)
+        content = self._restore_spacing_advanced(content)
+        
+        return content
+    
+    def _restore_spacing_advanced(self, text):
+        """고급 띄어쓰기 복원 (KoNLPy 사용)"""
+        try:
+            # KoNLPy 사용 (이미 설치됨)
+            from konlpy.tag import Okt
+            
+            okt = Okt()
+            
+            # 형태소 분석 후 띄어쓰기 적용
+            # normalize와 stem을 False로 해서 원본 형태 유지
+            morphs = okt.morphs(text, normalize=False, stem=False)
+            
+            # 형태소들을 적절히 합치기
+            spaced_text = ""
+            for i, morph in enumerate(morphs):
+                if i == 0:
+                    spaced_text += morph
+                else:
+                    # 조사나 어미는 붙여쓰고, 나머지는 띄어쓰기
+                    prev_morph = morphs[i-1]
+                    pos = okt.pos([morph])[0][1] if okt.pos([morph]) else ""
+                    
+                    if pos in ['Josa', 'Eomi', 'Suffix']:  # 조사, 어미, 접미사
+                        spaced_text += morph
+                    else:
+                        spaced_text += " " + morph
+            
+            return spaced_text
+            
+        except ImportError:
+            print("KoNLPy import 실패, 기본 방법 사용")
+            return self._restore_spacing_enhanced(text)
+        except Exception as e:
+            print(f"KoNLPy 처리 중 오류: {e}")
+            return self._restore_spacing_enhanced(text)
+    
+    def _restore_spacing_enhanced(self, text):
+        """강화된 띄어쓰기 복원 (라이브러리 없이) - 한국어 특화"""
+        if not text or len(text) < 2:
+            return text
+        
+        # 1. 기본 정리
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        # 2. 한국어 띄어쓰기 패턴들 (실전 특화)
+        patterns = [
+            # 마침표, 느낌표, 물음표 뒤
+            (r'([.!?])([가-힣A-Za-z가-힣])', r'\1 \2'),
+            (r'([,;:])([가-힣A-Za-z])', r'\1 \2'),
+            
+            # 숫자와 한글 사이
+            (r'([0-9])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([0-9])', r'\1 \2'),
+            
+            # 영어와 한글 사이  
+            (r'([A-Za-z])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([A-Za-z])', r'\1 \2'),
+            
+            # 중요: 자주 등장하는 단어들 뒤에 띄어쓰기
+            (r'(이다|하다|되다|있다|없다|같다|이며|라고|이라고)([가-힣])', r'\1 \2'),
+            (r'(그리고|하지만|그러나|또한|따라서|즉|예를들어)([가-힣])', r'\1 \2'),
+            (r'(때문에|경우에|관련하여|대하여|통하여)([가-힣])', r'\1 \2'),
+            
+            # 기술용어 분리
+            (r'(LLM|RAG|AI|ML|API|GPU|CPU|NLP|CNN|RNN)([가-힣])', r'\1 \2'),
+            (r'([가-힣])(LLM|RAG|AI|ML|API|GPU|CPU|NLP|CNN|RNN)', r'\1 \2'),
+            
+            # 특정 패턴 - 실제 문서에서 자주 보이는 것들
+            (r'([가-힣])([CDEFGHIJKLMNOPQRSTUVWXYZ가-힣]{2,})', r'\1 \2'),
+            (r'(을수|를수|에대해|에관해|로부터)([가-힣])', r'\1 \2'),
+            
+            # 조사 앞뒤 (조심스럽게)
+            (r'([가-힣])(은는이가을를에서의로와과도만큼부터까지마다)([가-힣A-Z])', r'\1\2 \3'),
+        ]
+        
+        result = text
+        for pattern, replacement in patterns:
+            result = re.sub(pattern, replacement, result)
+        
+        # 3. 특별히 긴 단어들 처리 (문서에서 자주 보이는 패턴)
+        result = self._break_long_words(result)
+        
+        # 4. 정리
+        result = re.sub(r'\s+', ' ', result)
+        result = re.sub(r' +([,.!?;:])', r'\1', result)
+        
+        return result.strip()
+    
+    def _break_long_words(self, text):
+        """과도하게 긴 연속 단어들을 적절히 분할"""
+        # 10자 이상 연속된 한글을 찾아서 중간에 띄어쓰기 추가
+        def split_long_korean(match):
+            word = match.group(0)
+            if len(word) > 15:  # 15자 이상이면 3등분
+                third = len(word) // 3
+                return word[:third] + ' ' + word[third:2*third] + ' ' + word[2*third:]
+            elif len(word) > 8:  # 8자 이상이면 반으로
+                half = len(word) // 2
+                return word[:half] + ' ' + word[half:]
+            return word
+        
+        # 연속된 한글 패턴 찾기
+        text = re.sub(r'[가-힣]{8,}', split_long_korean, text)
+        
+        return text
+    
+    def _restore_spacing(self, text):
+        """띄어쓰기 복원 함수"""
+        if not text:
+            return text
+        
+        # 한국어 띄어쓰기 패턴 적용
+        patterns = [
+            # 조사 앞에 띄어쓰기
+            (r'([가-힣])([은는이가을를에서와과로으로의])([가-힣])', r'\1\2 \3'),
+            
+            # 마침표, 물음표, 느낌표 뒤에 띄어쓰기  
+            (r'([.!?])([가-힣A-Za-z])', r'\1 \2'),
+            
+            # 쉼표 뒤에 띄어쓰기
+            (r'([,])([가-힣A-Za-z])', r'\1 \2'),
+            
+            # 숫자와 한글 사이
+            (r'([0-9])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([0-9])', r'\1 \2'),
+            
+            # 영어와 한글 사이
+            (r'([A-Za-z])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([A-Za-z])', r'\1 \2'),
+            
+            # 특정 단어들 뒤에 띄어쓰기
+            (r'(이다|있다|없다|하다|되다|같다)([가-힣])', r'\1 \2'),
+            (r'(그리고|하지만|그러나|따라서|또한)([가-힣])', r'\1 \2'),
+            
+            # 자주 사용되는 접속어들
+            (r'(LLM|RAG|AI|ML)([가-힣])', r'\1 \2'),
+            (r'([가-힣])(LLM|RAG|AI|ML)', r'\1 \2'),
+        ]
+        
+        result = text
+        for pattern, replacement in patterns:
+            result = re.sub(pattern, replacement, result)
+        
+        # 과도한 띄어쓰기 정리
+        result = re.sub(r'\s+', ' ', result)
+        
+    def _restore_spacing_advanced(self, text):
+        """고급 띄어쓰기 복원 (라이브러리 사용)"""
+        try:
+            # python-spacing 라이브러리 사용 (설치된 경우)
+            from spacing import spacing
+            return spacing(text)
+        except ImportError:
+            try:
+                # khaiii 사용 (설치된 경우)
+                from khaiii import KhaiiiApi
+                api = KhaiiiApi()
+                spaced_text = ""
+                
+                for word in api.analyze(text):
+                    spaced_text += word.lex + " "
+                
+                return spaced_text.strip()
+            except ImportError:
+                # 라이브러리가 없으면 기본 방법 사용
+                return self._restore_spacing(text)
+        except Exception:
+            # 오류 발생시 기본 방법 사용
+            return self._restore_spacing(text)
     
     def _smart_truncate(self, text, max_length):
         """스마트한 텍스트 자르기 (문장 단위로)"""
