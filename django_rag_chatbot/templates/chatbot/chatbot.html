@@ -3,9 +3,115 @@
 <head>
     <title>RAG 챗봇</title>
     <meta charset="utf-8">
+    <style>
+        .chat-container { 
+            max-width: 800px; 
+            margin: 50px auto; 
+            border: 1px solid #ddd; 
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .chat-header { 
+            background: #007bff; 
+            color: white; 
+            padding: 15px; 
+            text-align: center; 
+        }
+        .chat-box { 
+            height: 400px; 
+            overflow-y: auto; 
+            padding: 20px; 
+            background: #f9f9f9; 
+        }
+        .message { 
+            margin-bottom: 15px; 
+            padding: 10px; 
+            border-radius: 10px; 
+            max-width: 70%; 
+        }
+        .user-message { 
+            background: #007bff; 
+            color: white; 
+            margin-left: auto; 
+            text-align: right; 
+        }
+        .bot-message { 
+            background: white; 
+            border: 1px solid #ddd; 
+        }
+        .input-container { 
+            padding: 20px; 
+            background: white; 
+            display: flex; 
+            gap: 10px; 
+        }
+        #messageInput { 
+            flex: 1; 
+            padding: 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 5px; 
+        }
+        #sendBtn { 
+            padding: 10px 20px; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+        }
+        #sendBtn:hover { 
+            background: #0056b3; 
+        }
+    </style>
 </head>
 <body>
-    <h1>RAG 챗봇 테스트</h1>
-    <p>설정이 제대로 되었습니다!</p>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>RAG 챗봇</h2>
+        </div>
+        
+        <div id="chatBox" class="chat-box">
+            <div class="message bot-message">
+                안녕하세요! 무엇을 도와드릴까요?
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." onkeypress="handleKeyPress(event)">
+            <button id="sendBtn" onclick="sendMessage()">전송</button>
+        </div>
+    </div>
+
+    <script>
+        function addMessage(message, isUser) {
+            const chatBox = document.getElementById('chatBox');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
+            messageDiv.textContent = message;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // 사용자 메시지 표시
+            addMessage(message, true);
+            input.value = '';
+
+            // 임시로 echo 응답 (나중에 API 연결)
+            setTimeout(() => {
+                addMessage(`Echo: ${message}`, false);
+            }, 500);
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+    </script>
 </body>
 </html>
