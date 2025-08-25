@@ -61,6 +61,9 @@ class HybridRAGEngine:
                 self.use_vector_search = True
                 print("하이브리드 RAG 엔진 (키워드 + 벡터 검색)을 사용합니다.")
                 
+                # ChromaDB에서 메모리로 문서 로드 (하이브리드 검색용)
+                self._load_chroma_to_memory()
+                
             except Exception as e:
                 print(f"ChromaDB 초기화 실패: {e}")
                 self.use_vector_search = False
@@ -399,7 +402,7 @@ class HybridRAGEngine:
             return 0
     
     def get_rag_response(self, query):
-        """RAG 기반 응답 생성 (안전한 버전)"""
+        """RAG 기반 응답 생성 (인코딩 안전 버전)"""
         try:
             relevant_docs = self.search_documents(query, k=5)  # 더 많은 문서 검색
             
@@ -408,14 +411,61 @@ class HybridRAGEngine:
             
             # 특정 키워드에 대해 구조화된 응답 생성
             if self._should_generate_structured_response(query):
-                return self._generate_structured_response(query, relevant_docs)
+                raw_response = self._generate_structured_response(query, relevant_docs)
             else:
                 # 일반적인 응답 생성
-                return self._generate_safe_response(query, relevant_docs)
+                raw_response = self._generate_safe_response(query, relevant_docs)
+            
+            # 최종 인코딩 안전성 보장
+            return self._ensure_encoding_safety(raw_response)
             
         except Exception as e:
             print(f"RAG 응답 생성 오류: {e}")
-            return f"검색은 완료했지만 응답 처리 중 문제가 발생했습니다. 오류: {str(e)}"
+            return f"검색은 완료했지만 응답 처리 중 문제가 발생했습니다."
+    
+    def _ensure_encoding_safety(self, text):
+        """최종 인코딩 안전성을 보장하는 함수"""
+        try:
+            # 1단계: 특수문자 제거
+            clean_text = self._remove_problematic_chars(text)
+            
+            # 2단계: CP949 인코딩 테스트
+            try:
+                clean_text.encode('cp949')
+                return clean_text
+            except UnicodeEncodeError:
+                # 3단계: 더 강력한 정리
+                safe_text = self._ultra_safe_clean(clean_text)
+                return safe_text
+                
+        except Exception as e:
+            print(f"인코딩 안전성 처리 오류: {e}")
+            return "응답을 생성했지만 인코딩 처리 중 문제가 발생했습니다."
+    
+    def _ultra_safe_clean(self, text):
+        """매우 안전한 텍스트 정리 (CP949 호환)"""
+        try:
+            # 문자별로 검사하여 안전한 문자만 유지
+            safe_chars = []
+            for char in str(text):
+                try:
+                    # CP949로 인코딩 가능한지 테스트
+                    char.encode('cp949')
+                    safe_chars.append(char)
+                except UnicodeEncodeError:
+                    # 인코딩 불가능한 문자는 공백으로 대체
+                    safe_chars.append(' ')
+            
+            # 연속 공백 정리
+            result = ''.join(safe_chars)
+            import re
+            result = re.sub(r'\s+', ' ', result).strip()
+            
+            return result
+            
+        except Exception:
+            # 정말 마지막 수단: ASCII만 유지
+            return text.encode('ascii', errors='ignore').decode('ascii')
     
     def _should_generate_structured_response(self, query):
         """구조화된 응답이 필요한지 판단"""
@@ -528,8 +578,8 @@ class HybridRAGEngine:
     
     def _clean_bullet_point(self, text):
         """텍스트를 깔끔한 불릿 포인트로 정리"""
-        # 불필요한 기호 제거
-        text = re.sub(r'^[•·\-▪▫◦※]+\s*', '', text.strip())
+        # 불필요한 기호 제거 (인코딩 안전한 방식)
+        text = re.sub(r'^[^\w\s가-힣]+\s*', '', text.strip())
         text = re.sub(r'^\d+[\.\)]\s*', '', text)  # 번호 제거
         
         # 너무 긴 텍스트는 잘라내기
@@ -596,21 +646,106 @@ class HybridRAGEngine:
     def _simple_clean_text(self, text):
         """간단한 텍스트 정리 (띄어쓰기 복원 포함)"""
         try:
-            # 기본 정리
+            # 1. 인코딩 문제 있는 문자 제거
+            text = self._remove_problematic_chars(text)
+            
+            # 2. 기본 정리
             text = re.sub(r'\s+', ' ', text)  # 연속 공백 제거
             text = text.strip()
             
-            # 고급 띄어쓰기 복원 함수 사용
+            # 3. 고급 띄어쓰기 복원 함수 사용
             text = self.restore_korean_spacing(text)
             
             return text
         except Exception as e:
             print(f"텍스트 정리 중 오류: {e}")
             # 오류 발생시 기본 띄어쓰기만 적용
+            text = self._remove_problematic_chars(text)
             text = re.sub(r'([.!?])([가-힣A-Za-z])', r'\1 \2', text)
             text = re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', text)
             text = re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', text)
             return text
+    
+    def _remove_problematic_chars(self, text):
+        """인코딩 문제를 일으킬 수 있는 특수문자 제거 (강화된 버전)"""
+        try:
+            # 1단계: 특수문자를 안전한 문자로 대체
+            replacements = {
+                # 불릿 포인트 문자들
+                '•': '- ', '▪': '- ', '▫': '- ', '◦': '- ', '◆': '- ', '◇': '- ',
+                '■': '- ', '□': '- ', '●': '- ', '○': '- ', '▲': '- ', '▼': '- ',
+                '◀': '- ', '▶': '- ', '⭐': '중요: ', '★': '중요: ', '☆': '중요: ',
+                
+                # 인용부호
+                '"': '"', '"': '"', ''': "'", ''': "'", '‚': "'", '„': '"',
+                
+                # 대시와 하이픈
+                '–': '-', '—': '-', '―': '-', '‐': '-', '‑': '-',
+                
+                # 기타 특수문자
+                '…': '...', '†': '', '‡': '', '‰': '%', '‱': '%',
+                '′': "'", '″': '"', '‴': "'", '‼': '!!', '⁇': '??',
+                '⁈': '?!', '⁉': '!?', '※': '주의: ', '℃': 'C', '℉': 'F',
+                
+                # 화살표
+                '→': '->', '←': '<-', '↑': '^', '↓': 'v', '⇒': '=>', '⇐': '<=',
+                
+                # 수학 기호
+                '×': 'x', '÷': '/', '±': '+-', '∞': 'inf', '≤': '<=', '≥': '>=',
+                '≠': '!=', '≈': '~=', '∑': 'sum', '∫': 'integral',
+                
+                # 그리스 문자 (일부)
+                'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta',
+                'θ': 'theta', 'λ': 'lambda', 'μ': 'mu', 'π': 'pi', 'σ': 'sigma',
+                
+                # 기타 문제가 될 수 있는 문자들
+                '§': 'section', '¶': 'para', '©': '(c)', '®': '(r)', '™': '(tm)',
+                '°': 'deg', '¢': 'cent', '£': 'pound', '¥': 'yen', '€': 'euro'
+            }
+            
+            # 2단계: 문자 대체 실행
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            
+            # 3단계: 유니코드 정규화 (NFC)
+            import unicodedata
+            text = unicodedata.normalize('NFC', text)
+            
+            # 4단계: CP949에서 문제가 되는 문자들 강제 제거
+            # 안전한 문자만 유지 (한글, 영문, 숫자, 기본 ASCII 문자)
+            safe_chars = []
+            for char in text:
+                # ASCII 문자 (0-127)
+                if ord(char) <= 127:
+                    safe_chars.append(char)
+                # 한글 완성형 (가-힣)
+                elif '\uac00' <= char <= '\ud7af':
+                    safe_chars.append(char)
+                # 한글 자음/모음 (ㄱ-ㅣ)
+                elif '\u3131' <= char <= '\u318e':
+                    safe_chars.append(char)
+                # 공백으로 대체
+                else:
+                    safe_chars.append(' ')
+            
+            cleaned_text = ''.join(safe_chars)
+            
+            # 5단계: 연속 공백 정리
+            import re
+            cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+            
+            return cleaned_text
+            
+        except Exception as e:
+            print(f"특수문자 제거 중 오류: {e}")
+            # 최후의 수단: 매우 보수적인 필터링
+            try:
+                # ASCII + 한글만 유지
+                import re
+                return re.sub(r'[^\x00-\x7F가-힣ㄱ-ㅣ\s]', ' ', str(text))
+            except:
+                # 정말 마지막 수단
+                return str(text).encode('ascii', errors='ignore').decode('ascii')
     
     def _extract_key_summary(self, content, query):
         """핵심 요약 추출"""
@@ -1044,6 +1179,32 @@ class HybridRAGEngine:
             }
         except Exception as e:
             return {"status": f"오류: {str(e)}"}
+    
+    def _load_chroma_to_memory(self):
+        """ChromaDB의 문서들을 메모리로 로드 (하이브리드 검색용)"""
+        if not self.use_vector_search:
+            return
+            
+        try:
+            # ChromaDB에서 모든 문서 가져오기
+            chroma_docs = self.collection.get(include=['documents', 'metadatas'])
+            
+            if chroma_docs['documents']:
+                print(f"ChromaDB에서 {len(chroma_docs['documents'])}개 문서를 메모리로 로드 중...")
+                
+                # Document 객체로 변환하여 메모리에 저장
+                for doc_text, metadata in zip(chroma_docs['documents'], chroma_docs['metadatas']):
+                    # 텍스트 정리 (인코딩 안전)
+                    clean_text = self._remove_problematic_chars(doc_text)
+                    doc_obj = Document(page_content=clean_text, metadata=metadata)
+                    self.documents.append(doc_obj)
+                
+                print(f"✓ {len(self.documents)}개 문서를 메모리에 로드 완료")
+            else:
+                print("ChromaDB에 로드할 문서가 없습니다.")
+                
+        except Exception as e:
+            print(f"ChromaDB → 메모리 로드 오류: {e}")
 
 # 전역 RAG 엔진 인스턴스 (하이브리드 엔진으로 업그레이드)
 rag_engine = HybridRAGEngine()
