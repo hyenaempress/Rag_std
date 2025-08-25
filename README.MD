@@ -193,9 +193,7 @@ python manage.py collectstatic
 
 ## 📞 문의 및 지원
 
-- **Issues**: [GitHub Issues](https://github.com/username/django-rag-chatbot/issues)
-- **Email**: your.email@example.com
-- **Documentation**: [Wiki](https://github.com/username/django-rag-chatbot/wiki)
+- **Email**: catnaro16@gmail.com
 
 ## 📄 라이선스
 
