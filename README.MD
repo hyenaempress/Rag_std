@@ -1,4 +1,4 @@
-# Django RAG 챗봇 🤖
+# Django RAG 챗봇 🤖 (Non VECTOR_DB)
 
 Django 기반의 Retrieval-Augmented Generation (RAG) 챗봇으로, 문서를 업로드하고 내용에 기반한 질문응답을 제공합니다.
 
