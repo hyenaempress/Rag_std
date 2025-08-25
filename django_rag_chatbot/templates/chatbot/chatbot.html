@@ -270,9 +270,41 @@
             const chatBox = document.getElementById('chatBox');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
-            messageDiv.textContent = message;
+            
+            if (isUser) {
+                messageDiv.textContent = message;
+            } else {
+                // 봇 메시지는 마크다운을 HTML로 변환
+                messageDiv.innerHTML = parseMarkdown(message);
+            }
+            
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        
+        // 간단한 마크다운 파서
+        function parseMarkdown(text) {
+            // 위험한 HTML 태그 제거
+            text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            // 마크다운 변환
+            text = text
+                // Bold: **text** 또는 __text__
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.+?)__/g, '<strong>$1</strong>')
+                // Italic: *text* 또는 _text_
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                .replace(/_([^_]+)_/g, '<em>$1</em>')
+                // 줄바꿈
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                // 이모지와 함께 굵은 글씨 처리
+                .replace(/💡/g, '<span style="font-size: 1.2em;">💡</span>')
+                .replace(/📚/g, '<span style="font-size: 1.2em;">📚</span>')
+                .replace(/📄/g, '<span style="font-size: 1.2em;">📄</span>');
+            
+            // 단락 태그로 감싸기
+            return '<p>' + text + '</p>';
         }
 
         // 채팅 메시지 전송

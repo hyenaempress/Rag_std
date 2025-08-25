@@ -130,15 +130,30 @@ class SimpleRAGEngine:
         
         # 1. 완전한 구문 일치 (가장 높은 점수)
         if full_query in content:
-            score += len(full_query) * 3
+            score += len(full_query) * 5
         
-        # 2. 개별 키워드 점수
+        # 2. 개별 키워드 점수 (키워드 중요도 가중치 적용)
         for keyword in keywords:
             if keyword in content:
-                # 키워드 빈도 * 키워드 길이
+                # 키워드 빈도
                 frequency = content.count(keyword)
-                keyword_score = frequency * len(keyword) * 2
+                
+                # 키워드 길이에 따른 가중치 (긴 키워드가 더 중요)
+                length_weight = len(keyword)
+                
+                # 핵심 키워드 보너스 (5글자 이상은 매우 중요한 키워드로 간주)
+                if len(keyword) >= 5:
+                    keyword_score = frequency * length_weight * 10  # 높은 가중치
+                elif len(keyword) >= 3:
+                    keyword_score = frequency * length_weight * 3
+                else:
+                    keyword_score = frequency * length_weight * 1
+                    
                 score += keyword_score
+                
+                # 키워드가 문장 시작 부분에 있으면 추가 점수
+                if content[:50].count(keyword) > 0:
+                    score += length_weight * 5
         
         # 3. 키워드 근접성 보너스 (키워드들이 가까이 있으면 추가 점수)
         if len(keywords) > 1:
@@ -241,20 +256,23 @@ class SimpleRAGEngine:
                 return "문서를 찾았지만 응답을 생성하는 중 오류가 발생했습니다."
     
     def _simple_clean_text(self, text):
-        """간단한 텍스트 정리 (오류 방지)"""
+        """간단한 텍스트 정리 (띄어쓰기 복원 포함)"""
         try:
-            # 기본 정리만
+            # 기본 정리
             text = re.sub(r'\s+', ' ', text)  # 연속 공백 제거
             text = text.strip()
             
-            # 간단한 띄어쓰기만 적용
-            text = re.sub(r'([.!?])([가-힣A-Za-z])', r'\1 \2', text)  # 마침표 뒤
-            text = re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', text)      # 영어-한글
-            text = re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', text)      # 한글-영어
+            # 고급 띄어쓰기 복원 함수 사용
+            text = self.restore_korean_spacing(text)
             
             return text
-        except:
-            return text  # 오류 발생시 원본 반환
+        except Exception as e:
+            print(f"텍스트 정리 중 오류: {e}")
+            # 오류 발생시 기본 띄어쓰기만 적용
+            text = re.sub(r'([.!?])([가-힣A-Za-z])', r'\1 \2', text)
+            text = re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', text)
+            text = re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', text)
+            return text
     
     def _extract_key_summary(self, content, query):
         """핵심 요약 추출"""
