@@ -6,7 +6,15 @@ import json
 import os
 import logging
 from datetime import datetime
-from .rag_engine import rag_engine
+# 하이브리드 RAG 엔진 import (점진적 전환)
+try:
+    from .hybrid_rag_engine import get_hybrid_engine
+    rag_engine = get_hybrid_engine()
+    print("Hybrid RAG engine loaded")
+except Exception as e:
+    # 오류 발생시 기존 엔진 사용
+    from .rag_engine import rag_engine
+    print(f"Hybrid engine load failed, using existing engine: {e}")
 from .models import Document
 
 # 로거 설정
@@ -67,7 +75,11 @@ def generate_response(user_message):
         return general_response
     
     # 2. 문서가 있으면 RAG 검색 시도
-    if rag_engine.get_document_count() > 0:
+    doc_count = rag_engine.get_document_count()
+    # 하이브리드 엔진인 경우 dict, 기존 엔진인 경우 int
+    total_docs = doc_count.get('total', 0) if hasattr(doc_count, 'get') else doc_count
+    
+    if total_docs > 0:
         rag_response = rag_engine.get_rag_response(user_message)
         
         # RAG 응답을 그대로 사용 (추가 포맷팅 안함)
@@ -85,9 +97,18 @@ def format_no_result_response(query):
     """검색 결과가 없을 때의 응답"""
     doc_count = rag_engine.get_document_count()
     
+    # 하이브리드 엔진인 경우 상세 정보 표시
+    if hasattr(doc_count, 'get'):
+        total = doc_count.get('total', 0)
+        vector_count = doc_count.get('vector_chunks', 0)
+        keyword_count = doc_count.get('keyword_chunks', 0)
+        count_info = f"{total}개의 문서 (벡터: {vector_count}, 키워드: {keyword_count})"
+    else:
+        count_info = f"{doc_count}개의 문서"
+    
     return f"""🤔 **"{query}"**에 대한 정보를 찾지 못했어요.
 
-📝 현재 {doc_count}개의 문서가 업로드되어 있습니다.
+📝 현재 {count_info}가 업로드되어 있습니다.
 
 💡 다음을 시도해보세요:
 • 다른 키워드로 질문해보기
@@ -124,6 +145,12 @@ def get_general_response(message):
     function_keywords = ['기능', '뭐할', '뭐해', '도움', 'help', '사용법']
     if any(word in message_lower for word in function_keywords):
         doc_count = rag_engine.get_document_count()
+        # 하이브리드 엔진인 경우 dict, 기존 엔진인 경우 int
+        if hasattr(doc_count, 'get'):
+            total_docs = doc_count.get('total', 0)
+        else:
+            total_docs = doc_count
+            
         return f"""🛠️ **제가 할 수 있는 것들:**
 
 📤 **문서 업로드**
@@ -138,28 +165,11 @@ def get_general_response(message):
 • 문서 내용 기반 답변
 • 요약 및 설명 제공
 
-📊 **현재 상태:** {doc_count}개 문서 업로드됨
+📊 **현재 상태:** {total_docs}개 문서 업로드됨
 ➡️ 왼쪽에서 더 많은 문서를 추가해보세요!"""
     
-    # RAG 관련 질문
-    if 'rag' in message_lower:
-        return """🔍 **RAG (Retrieval-Augmented Generation)**
-
-**개념:**
-• Retrieval: 관련 문서/정보 검색
-• Augmented: 검색된 정보로 강화
-• Generation: 정확한 답변 생성
-
-**장점:**
-✅ 최신 정보 활용
-✅ 환각(Hallucination) 감소  
-✅ 출처 기반 신뢰성
-✅ 도메인 특화 가능
-
-**동작 과정:**
-1. 문서를 작은 청크로 분할
-2. 질문과 관련된 청크 검색
-3. 검색된 내용을 바탕으로 답변 생성"""
+    # RAG 관련 질문 - 하드코딩 제거, 문서 기반 검색으로 처리
+    # if 'rag' in message_lower: 제거 - 문서에서 검색하도록 함
     
     # 시간 관련
     time_keywords = ['시간', 'time', '몇시', '날짜', 'date']

@@ -1,0 +1,9 @@
+# 벡터 DB 관련 패키지
+chromadb==0.4.22
+sentence-transformers==2.2.2
+
+# 한국어 처리 (선택)
+pykospacing==0.5
+konlpy==0.6.0
+
+# 기존 패키지들은 requirements.txt 참조

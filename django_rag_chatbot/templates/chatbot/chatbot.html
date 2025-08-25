@@ -265,12 +265,44 @@
             event.target.classList.add('active');
         }
 
+        // 마크다운 파싱 함수
+        function parseMarkdown(text) {
+            // XSS 방지를 위한 HTML 이스케이프
+            text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            // 마크다운 파싱
+            text = text
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')  // **굵은글씨**
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')             // *기울임*
+                .replace(/`(.+?)`/g, '<code>$1</code>')           // `코드`
+                .replace(/^### (.+)$/gm, '<h3>$1</h3>')          // ### 제목
+                .replace(/^## (.+)$/gm, '<h2>$1</h2>')           // ## 제목
+                .replace(/^# (.+)$/gm, '<h1>$1</h1>')            // # 제목
+                .replace(/^\• (.+)$/gm, '<li>$1</li>')           // • 리스트
+                .replace(/^◦ (.+)$/gm, '<li style="margin-left: 20px;">$1</li>')  // ◦ 서브리스트
+                .replace(/\n\n/g, '</p><p>')                     // 단락 구분
+                .replace(/\n/g, '<br>');                         // 줄바꿈
+            
+            return '<p>' + text + '</p>';
+        }
+
         // 메시지 추가
         function addMessage(message, isUser) {
             const chatBox = document.getElementById('chatBox');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
-            messageDiv.textContent = message;
+            
+            if (isUser) {
+                messageDiv.textContent = message;  // 사용자 메시지는 텍스트만
+            } else {
+                messageDiv.innerHTML = parseMarkdown(message);  // 봇 메시지는 마크다운 파싱
+                // 이모지 크기 조정
+                messageDiv.innerHTML = messageDiv.innerHTML.replace(
+                    /([\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}])/gu,
+                    '<span style="font-size: 1.2em;">$1</span>'
+                );
+            }
+            
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
