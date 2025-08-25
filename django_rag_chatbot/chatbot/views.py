@@ -207,3 +207,5 @@ def upload_file_api(request):
                 
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': f'파일 업로드 중 오류: {str(e)}'})
+        
+        
