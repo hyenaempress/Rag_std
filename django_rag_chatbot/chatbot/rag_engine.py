@@ -186,24 +186,47 @@ class SimpleRAGEngine:
             return f"검색은 완료했지만 응답 처리 중 문제가 발생했습니다. 오류: {str(e)}"
     
     def _generate_safe_response(self, query, docs):
-        """안전한 응답 생성 (오류 방지)"""
+        """안전한 응답 생성 (개선된 버전)"""
         try:
             response_parts = [f'💡 **"{query}"**에 대한 답변:\n']
             
-            # 가장 관련성 높은 문서 1개만 사용
-            main_doc = docs[0]
-            content = main_doc.page_content
-            source = main_doc.metadata.get('source', '문서')
+            # 최대 2개의 관련 문서 사용
+            num_docs_to_use = min(2, len(docs))
+            combined_content = []
+            sources = []
             
-            # 텍스트 정리 (간단하게)
-            clean_content = self._simple_clean_text(content)
+            for i in range(num_docs_to_use):
+                doc = docs[i]
+                content = doc.page_content
+                source = doc.metadata.get('source', '문서')
+                
+                # 텍스트 정리
+                clean_content = self._simple_clean_text(content)
+                
+                # 각 문서에서 500자씩 가져오기
+                if len(clean_content) > 500:
+                    clean_content = clean_content[:500]
+                
+                combined_content.append(clean_content)
+                if source not in sources:
+                    sources.append(source)
             
-            # 300자로 제한
-            if len(clean_content) > 300:
-                clean_content = clean_content[:300] + "..."
+            # 출처 표시
+            if sources:
+                source_names = [s.split('\\')[-1] if '\\' in s else s for s in sources]
+                response_parts.append(f"**📚 출처:** {', '.join(source_names[:2])}")
             
-            response_parts.append(f"**📚 출처:** {source}")
-            response_parts.append(f"**내용:**\n{clean_content}")
+            # 내용 결합 (최대 800자)
+            full_content = '\n\n'.join(combined_content)
+            if len(full_content) > 800:
+                full_content = full_content[:800] + "..."
+            
+            response_parts.append(f"**내용:**\n{full_content}")
+            
+            # 추가 안내
+            if len(docs) > 2:
+                response_parts.append(f"\n📄 추가로 {len(docs)-2}개의 관련 문서가 더 있습니다.")
+            
             response_parts.append("\n💡 더 구체적인 질문을 해주시면 더 정확한 답변을 드릴게요!")
             
             return "\n".join(response_parts)
