@@ -197,17 +197,142 @@ class SimpleRAGEngine:
     def get_rag_response(self, query):
         """RAG 기반 응답 생성 (안전한 버전)"""
         try:
-            relevant_docs = self.search_documents(query, k=3)
+            relevant_docs = self.search_documents(query, k=5)  # 더 많은 문서 검색
             
             if not relevant_docs:
                 return "죄송합니다. 관련된 문서를 찾을 수 없습니다."
             
-            # 간단하고 안전한 응답 생성
-            return self._generate_safe_response(query, relevant_docs)
+            # 특정 키워드에 대해 구조화된 응답 생성
+            if self._should_generate_structured_response(query):
+                return self._generate_structured_response(query, relevant_docs)
+            else:
+                # 일반적인 응답 생성
+                return self._generate_safe_response(query, relevant_docs)
             
         except Exception as e:
             print(f"RAG 응답 생성 오류: {e}")
             return f"검색은 완료했지만 응답 처리 중 문제가 발생했습니다. 오류: {str(e)}"
+    
+    def _should_generate_structured_response(self, query):
+        """구조화된 응답이 필요한지 판단"""
+        query_lower = query.lower()
+        
+        # 정의, 개념, 설명을 요구하는 질문들
+        definition_keywords = ['뭐야', '뭔가', '무엇', '뭐지', '뭐임', '이란', '란', 
+                             'what is', 'what are', '개념', '정의', '설명']
+        
+        return any(keyword in query_lower for keyword in definition_keywords)
+    
+    def _generate_structured_response(self, query, docs):
+        """구조화된 요약 응답 생성"""
+        try:
+            # 키워드 추출
+            keywords = self._extract_keywords(query.lower())
+            main_keyword = keywords[0] if keywords else query.split()[0]
+            
+            # 문서에서 관련 정보 추출
+            content_sections = self._extract_structured_info(docs, main_keyword)
+            
+            # 구조화된 응답 생성
+            response_parts = [f'🔍 **{main_keyword.upper()}**\n']
+            
+            if content_sections['definition']:
+                response_parts.append("**📖 정의:**")
+                response_parts.append(content_sections['definition'])
+                response_parts.append("")
+            
+            if content_sections['features']:
+                response_parts.append("**✨ 주요 특징:**")
+                for feature in content_sections['features'][:5]:  # 최대 5개
+                    response_parts.append(f"• {feature}")
+                response_parts.append("")
+            
+            if content_sections['advantages']:
+                response_parts.append("**✅ 장점:**")
+                for advantage in content_sections['advantages'][:4]:  # 최대 4개
+                    response_parts.append(f"• {advantage}")
+                response_parts.append("")
+            
+            if content_sections['process']:
+                response_parts.append("**📋 과정/방법:**")
+                for i, step in enumerate(content_sections['process'][:5], 1):  # 최대 5단계
+                    response_parts.append(f"{i}. {step}")
+                response_parts.append("")
+            
+            # 출처 표시
+            sources = list(set([doc.metadata.get('source', '문서') for doc in docs[:2]]))
+            source_names = [s.split('\\')[-1] if '\\' in s else s for s in sources]
+            response_parts.append(f"📚 출처: {', '.join(source_names)}")
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            print(f"구조화된 응답 생성 오류: {e}")
+            # 오류 시 일반 응답으로 폴백
+            return self._generate_safe_response(query, docs)
+    
+    def _extract_structured_info(self, docs, keyword):
+        """문서에서 구조화된 정보 추출"""
+        sections = {
+            'definition': '',
+            'features': [],
+            'advantages': [],
+            'process': []
+        }
+        
+        # 모든 문서 내용 결합
+        combined_text = '\n'.join([doc.page_content for doc in docs])
+        
+        # 띄어쓰기 복원
+        combined_text = self.restore_korean_spacing(combined_text)
+        
+        # 문장 단위로 분리
+        sentences = self._split_into_sentences(combined_text)
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            
+            # 정의 추출
+            if keyword in sentence_lower and any(word in sentence_lower for word in ['는', '란', '이란', '정의', '개념']):
+                if not sections['definition'] and len(sentence) > 20:
+                    sections['definition'] = sentence.strip()
+            
+            # 특징 추출
+            if any(word in sentence_lower for word in ['특징', '기능', '역할', '수행', '가능', '제공']):
+                feature = self._clean_bullet_point(sentence)
+                if feature and len(feature) > 10:
+                    sections['features'].append(feature)
+            
+            # 장점 추출
+            if any(word in sentence_lower for word in ['장점', '이점', '강점', '우수', '효과', '개선', '향상', '감소']):
+                advantage = self._clean_bullet_point(sentence)
+                if advantage and len(advantage) > 10:
+                    sections['advantages'].append(advantage)
+            
+            # 과정/단계 추출
+            if any(word in sentence_lower for word in ['단계', '과정', '먼저', '다음', '이후', '최종', '순서']):
+                process = self._clean_bullet_point(sentence)
+                if process and len(process) > 10:
+                    sections['process'].append(process)
+        
+        # 중복 제거
+        sections['features'] = list(dict.fromkeys(sections['features']))
+        sections['advantages'] = list(dict.fromkeys(sections['advantages']))
+        sections['process'] = list(dict.fromkeys(sections['process']))
+        
+        return sections
+    
+    def _clean_bullet_point(self, text):
+        """텍스트를 깔끔한 불릿 포인트로 정리"""
+        # 불필요한 기호 제거
+        text = re.sub(r'^[•·\-▪▫◦※]+\s*', '', text.strip())
+        text = re.sub(r'^\d+[\.\)]\s*', '', text)  # 번호 제거
+        
+        # 너무 긴 텍스트는 잘라내기
+        if len(text) > 100:
+            text = text[:100] + '...'
+        
+        return text.strip()
     
     def _generate_safe_response(self, query, docs):
         """안전한 응답 생성 (개선된 버전)"""

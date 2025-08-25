@@ -146,6 +146,7 @@ django_rag_chatbot/
   - 응답 길이 확대: 300자 → 800자
   - 다중 문서 활용: 최대 2개 문서에서 정보 결합
   - 추가 관련 문서 존재 시 안내 메시지 표시
+  - 구조화된 요약 응답 생성 기능 추가
 - **🎨 프론트엔드 마크다운 렌더링**
   - `parseMarkdown()` 함수 추가로 마크다운 → HTML 변환
   - Bold, Italic 텍스트 지원
@@ -155,6 +156,11 @@ django_rag_chatbot/
   - 람다 함수 오류 해결 (별도 함수로 분리)
   - 긴 한글 단어 분할 로직 안정화
   - 검색 점수 계산 알고리즘 최적화
+  - KoNLPy 파라미터 오류 수정
+- **⚠️ 현재 시스템의 한계 확인**
+  - 키워드 기반 검색으로는 의미적 유사성 파악 불가
+  - "할루시네이션" 같은 전문 용어 검색 시 정확도 부족
+  - **결론: 벡터 DB 도입이 필요함**
 
 ## 🔧 개발 로드맵 & 비즈니스 가치
 
@@ -174,9 +180,32 @@ django_rag_chatbot/
 - 파일 형식/용량 검증 및 보안 강화
 - 예외 처리 및 로깅 시스템 구축
 
-**데이터 영속성**
-- 벡터 데이터베이스 연동 (ChromaDB, FAISS)
-- 서버 재시작 후에도 데이터 유지
+**🎯 벡터 DB 도입 (최우선 과제)**
+현재 키워드 기반 검색의 한계로 인해 벡터 DB 도입이 필수적으로 확인됨
+
+```python
+# ChromaDB 또는 FAISS 사용 예시
+from langchain.vectorstores import Chroma
+from langchain.embeddings import HuggingFaceEmbeddings
+
+# 한국어 임베딩 모델
+embeddings = HuggingFaceEmbeddings(
+    model_name="jhgan/ko-sroberta-multitask"
+)
+
+# 벡터 저장소
+vector_store = Chroma(
+    embedding_function=embeddings,
+    persist_directory="./chroma_db"
+)
+```
+
+**벡터 DB 도입 시 개선점:**
+- ✅ **의미적 유사성 검색**: 키워드가 없어도 의미가 비슷한 내용 검색
+- ✅ **문맥 이해**: 전체 문맥을 고려한 정확한 검색
+- ✅ **동의어/유사어 자동 처리**: "할루시네이션", "환각", "허위정보" 모두 검색
+- ✅ **더 정확한 관련성 점수**: 코사인 유사도 기반 정밀한 매칭
+- ✅ **서버 재시작 후에도 데이터 유지**: 영속성 보장
 
 **검색 성능 (TF-IDF → Dense → 하이브리드 진화)**
 - BM25 + Dense 하이브리드 검색 → *검색 정확도 30% 향상 목표*
