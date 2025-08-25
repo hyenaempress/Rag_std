@@ -70,46 +70,16 @@ def generate_response(user_message):
     if rag_engine.get_document_count() > 0:
         rag_response = rag_engine.get_rag_response(user_message)
         
-        # RAG 응답 개선
+        # RAG 응답을 그대로 사용 (추가 포맷팅 안함)
         if "관련된 문서를 찾을 수 없습니다" in rag_response:
             return format_no_result_response(user_message)
         else:
-            return format_rag_response(user_message, rag_response)
+            return rag_response  # rag_engine에서 이미 포맷팅된 응답 그대로 사용
     
     # 3. 문서가 없는 경우
     return get_no_document_response(user_message)
 
-def format_rag_response(query, raw_response):
-    """RAG 응답을 더 읽기 좋게 포맷팅"""
-    try:
-        # 원본 응답에서 "검색된 관련 내용:" 부분 제거
-        content = raw_response.replace("검색된 관련 내용:", "").strip()
-        
-        # 너무 긴 내용은 줄바꿈으로 분할
-        if len(content) > 500:
-            # 문장 단위로 분할 시도
-            sentences = content.replace('. ', '.\n').split('\n')
-            formatted_sentences = []
-            
-            for sentence in sentences[:3]:  # 처음 3문장만
-                if sentence.strip():
-                    formatted_sentences.append(f"• {sentence.strip()}")
-            
-            formatted_content = '\n'.join(formatted_sentences)
-            
-            return f"""💡 **"{query}"**에 대한 답변:
-
-{formatted_content}
-
-📚 더 자세한 내용이 필요하시면 구체적인 질문을 해주세요!"""
-        
-        return f"""💡 **"{query}"**에 대한 답변:
-
-{content}"""
-        
-    except Exception as e:
-        logger.error(f"RAG response formatting error: {str(e)}")
-        return raw_response
+# format_rag_response 함수는 이제 필요없으므로 제거하거나 주석 처리
 
 def format_no_result_response(query):
     """검색 결과가 없을 때의 응답"""
