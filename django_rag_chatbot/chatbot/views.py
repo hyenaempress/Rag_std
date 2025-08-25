@@ -61,12 +61,19 @@ def chat_api(request):
 def generate_response(user_message):
     """통합 응답 생성 함수"""
     
-    # 1. 먼저 일반적인 대화 응답 확인
-    general_response = get_general_response(user_message)
-    if general_response:
-        return general_response
+    # 1. 인사말이나 챗봇 소개 등 기본적인 대화만 처리
+    message_lower = user_message.lower()
     
-    # 2. 문서가 있으면 RAG 검색 시도
+    # 인사말
+    greetings = ['안녕', 'hello', 'hi', '반가워', 'hey']
+    if any(word in message_lower for word in greetings) and len(message_lower) < 10:
+        return "안녕하세요! 👋 저는 RAG 챗봇입니다.\n문서를 업로드하면 그 내용에 대해 질문할 수 있어요!"
+    
+    # 감사 인사
+    if any(word in message_lower for word in ['고마워', '감사', 'thank']) and len(message_lower) < 10:
+        return "😊 천만에요! 더 궁금한 것이 있으시면 언제든 물어보세요."
+    
+    # 2. 문서가 있으면 무조건 RAG 검색 시도 (대부분의 질문)
     if rag_engine.get_document_count() > 0:
         rag_response = rag_engine.get_rag_response(user_message)
         
@@ -141,25 +148,10 @@ def get_general_response(message):
 📊 **현재 상태:** {doc_count}개 문서 업로드됨
 ➡️ 왼쪽에서 더 많은 문서를 추가해보세요!"""
     
-    # RAG 관련 질문
-    if 'rag' in message_lower:
-        return """🔍 **RAG (Retrieval-Augmented Generation)**
-
-**개념:**
-• Retrieval: 관련 문서/정보 검색
-• Augmented: 검색된 정보로 강화
-• Generation: 정확한 답변 생성
-
-**장점:**
-✅ 최신 정보 활용
-✅ 환각(Hallucination) 감소  
-✅ 출처 기반 신뢰성
-✅ 도메인 특화 가능
-
-**동작 과정:**
-1. 문서를 작은 청크로 분할
-2. 질문과 관련된 청크 검색
-3. 검색된 내용을 바탕으로 답변 생성"""
+    # RAG 관련 질문도 문서 검색으로 처리하도록 주석 처리
+    # if 'rag' in message_lower:
+    #     # 하드코딩된 답변 대신 문서 검색을 수행하도록 함
+    #     pass
     
     # 시간 관련
     time_keywords = ['시간', 'time', '몇시', '날짜', 'date']
