@@ -150,6 +150,51 @@ django_rag_chatbot/
 - BM25 + Dense 하이브리드 검색 → *검색 정확도 30% 향상 목표*
 - 다국어 임베딩 모델 적용 (한국어 최적화) → *한국어 질의 정확도 50% 개선*
 - 검색 결과 출처 및 하이라이트 표시 → *사용자 신뢰도 증대*
+## 🎯 최신 업데이트 (2025-08-25)
+
+### 하이브리드 RAG 엔진 성공적 구축!
+
+**현재 상태:**
+- ✅ **키워드 검색 + 벡터 검색 병행 운영**
+- ✅ **한국어 임베딩 모델 (jhgan/ko-sroberta-multitask) 로드됨**
+- ✅ **ChromaDB 벡터 저장소 생성됨**
+- ✅ **하이브리드 모드: Keyword + Vector search 활성화**
+
+**기술적 성과:**
+```
+Vector DB available: ChromaDB + SentenceTransformers ✅
+New vector DB created ✅  
+Hybrid mode: Keyword + Vector search ✅
+Korean embedding model loaded successfully ✅
+```
+
+**향상된 성능:**
+- **의미적 유사성 검색**: 벡터 검색으로 "할루시네이션" 같은 기술용어의 정확한 의미 매칭
+- **하이브리드 스코어링**: 벡터 유사도 70% + 키워드 매칭 30% 가중 점수
+- **한국어 최적화**: ko-sroberta-multitask 모델로 한국어 문맥 이해 대폭 개선
+- **점진적 전환**: 기존 키워드 엔진과 병행 운영으로 안정성 확보
+
+**추가된 벡터 DB 라이브러리:**
+```bash
+# 벡터 검색 라이브러리 설치 (선택사항)
+pip install -r requirements_vector.txt
+```
+
+**파일 구조 업데이트:**
+```
+chatbot/
+├── rag_engine.py           # 기존 키워드 검색 (한국어 띄어쓰기 복원 추가)
+├── hybrid_rag_engine.py    # 🆕 하이브리드 검색 엔진
+├── vector_engine.py        # 🆕 순수 벡터 검색 엔진
+└── views.py               # 하이브리드 엔진 통합 완료
+```
+
+## ⚠️ 알려진 이슈
+
+- PDF 파일의 한글 처리 제한 (pypdf 라이브러리 한계)
+- 대용량 파일 업로드시 메모리 사용량 증가
+- 복잡한 문서 구조 처리 한계
+
 
 ![RAG V](./rag-v.png)
 
@@ -225,50 +270,6 @@ python manage.py load_test --concurrent_users=50 --duration=300s
 - 사용자 만족도 피드백 (5점 척도)
 - 자주 묻는 질문 vs 검색 성공률 분석
 
-## 🎯 최신 업데이트 (2025-08-25)
-
-### 하이브리드 RAG 엔진 성공적 구축!
-
-**현재 상태:**
-- ✅ **키워드 검색 + 벡터 검색 병행 운영**
-- ✅ **한국어 임베딩 모델 (jhgan/ko-sroberta-multitask) 로드됨**
-- ✅ **ChromaDB 벡터 저장소 생성됨**
-- ✅ **하이브리드 모드: Keyword + Vector search 활성화**
-
-**기술적 성과:**
-```
-Vector DB available: ChromaDB + SentenceTransformers ✅
-New vector DB created ✅  
-Hybrid mode: Keyword + Vector search ✅
-Korean embedding model loaded successfully ✅
-```
-
-**향상된 성능:**
-- **의미적 유사성 검색**: 벡터 검색으로 "할루시네이션" 같은 기술용어의 정확한 의미 매칭
-- **하이브리드 스코어링**: 벡터 유사도 70% + 키워드 매칭 30% 가중 점수
-- **한국어 최적화**: ko-sroberta-multitask 모델로 한국어 문맥 이해 대폭 개선
-- **점진적 전환**: 기존 키워드 엔진과 병행 운영으로 안정성 확보
-
-**추가된 벡터 DB 라이브러리:**
-```bash
-# 벡터 검색 라이브러리 설치 (선택사항)
-pip install -r requirements_vector.txt
-```
-
-**파일 구조 업데이트:**
-```
-chatbot/
-├── rag_engine.py           # 기존 키워드 검색 (한국어 띄어쓰기 복원 추가)
-├── hybrid_rag_engine.py    # 🆕 하이브리드 검색 엔진
-├── vector_engine.py        # 🆕 순수 벡터 검색 엔진
-└── views.py               # 하이브리드 엔진 통합 완료
-```
-
-## ⚠️ 알려진 이슈
-
-- PDF 파일의 한글 처리 제한 (pypdf 라이브러리 한계)
-- 대용량 파일 업로드시 메모리 사용량 증가
-- 복잡한 문서 구조 처리 한계
 
 ## 🤝 기여하기
 
