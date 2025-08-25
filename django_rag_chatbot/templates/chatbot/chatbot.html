@@ -82,36 +82,61 @@
         </div>
     </div>
 
-    <script>
-        function addMessage(message, isUser) {
+<script>
+    function addMessage(message, isUser) {
+        const chatBox = document.getElementById('chatBox');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
+        messageDiv.textContent = message;
+        chatBox.appendChild(messageDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const message = input.value.trim();
+        if (!message) return;
+
+        // 사용자 메시지 표시
+        addMessage(message, true);
+        input.value = '';
+
+        // 로딩 메시지
+        addMessage('생각 중...', false);
+
+        try {
+            // Django API 호출
+            const response = await fetch('/api/chat/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({message: message})
+            });
+            
+            const data = await response.json();
+            
+            // 로딩 메시지 제거
             const chatBox = document.getElementById('chatBox');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
-            messageDiv.textContent = message;
-            chatBox.appendChild(messageDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            chatBox.removeChild(chatBox.lastChild);
+            
+            // 실제 응답 표시
+            addMessage(data.response, false);
+            
+        } catch (error) {
+            console.error('Error:', error);
+            // 로딩 메시지 제거
+            const chatBox = document.getElementById('chatBox');
+            chatBox.removeChild(chatBox.lastChild);
+            addMessage('죄송합니다. 오류가 발생했습니다.', false);
         }
+    }
 
-        function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
-            if (!message) return;
-
-            // 사용자 메시지 표시
-            addMessage(message, true);
-            input.value = '';
-
-            // 임시로 echo 응답 (나중에 API 연결)
-            setTimeout(() => {
-                addMessage(`Echo: ${message}`, false);
-            }, 500);
+    function handleKeyPress(event) {
+        if (event.key === 'Enter') {
+            sendMessage();
         }
-
-        function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
-        }
-    </script>
+    }
+</script>
 </body>
 </html>
