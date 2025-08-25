@@ -86,22 +86,41 @@ class SimpleRAGEngine:
         return [doc for doc, score in scored_docs[:k]]
     
     def _extract_keywords(self, query):
-        """쿼리에서 의미있는 키워드 추출"""
-        # 불용어 제거
+        """쿼리에서 의미있는 키워드 추출 (개선된 버전)"""
+        # 불용어 제거 (질문 단어는 제외)
         stop_words = {
             '이', '그', '저', '의', '가', '을', '를', '에', '와', '과', '으로', '로',
             '은', '는', '이다', '다', '하다', '되다', '있다', '없다', '같다',
-            '뭐', '뭔', '뭐야', '무엇', '어떤', '어디', '언제', '왜', '어떻게',
+            '지', '까', '니', '냐', '야', '어', '아', '요', '에요',
             'what', 'is', 'are', 'the', 'a', 'an', 'and', 'or', 'but'
         }
+        
+        # 질문 단어들 (의미가 있는 경우가 많음)
+        question_words = {'뭐', '뭔', '뭐야', '무엇', '어떤', '어디', '언제', '왜', '어떻게'}
         
         words = query.split()
         meaningful_words = []
         
         for word in words:
-            # 2글자 이상이고 불용어가 아닌 경우
-            if len(word) > 1 and word not in stop_words:
-                meaningful_words.append(word)
+            # 정리된 단어 생성
+            clean_word = word.rstrip('지?!.,').lower()
+            
+            # 3글자 이상이면 항상 포함 (핵심 키워드일 가능성 높음)
+            if len(clean_word) >= 3:
+                meaningful_words.append(clean_word)
+            # 2글자이고 불용어가 아닌 경우
+            elif len(clean_word) == 2 and clean_word not in stop_words:
+                meaningful_words.append(clean_word)
+            # 질문 단어인 경우 (컨텍스트에 따라 의미가 있을 수 있음)
+            elif clean_word in question_words and len(meaningful_words) == 0:
+                meaningful_words.append(clean_word)
+        
+        # 최소 하나의 키워드는 있어야 함
+        if not meaningful_words and words:
+            # 가장 긴 단어를 선택
+            longest_word = max(words, key=len).rstrip('지?!.,').lower()
+            if len(longest_word) > 0:
+                meaningful_words.append(longest_word)
         
         return meaningful_words
     
@@ -344,17 +363,14 @@ class SimpleRAGEngine:
             # 조사 앞뒤 처리 (조심스럽게)
             (r'([가-힣])(은는이가을를에서의로와과도만큼부터까지마다에게께서)([가-힣A-Z])', r'\1\2 \3'),
             
-            # 긴 한글 단어 분할
-            (r'([가-힣]{8,})([가-힣]{3,})', lambda m: self._smart_split_word(m.group(0))),
         ]
         
         result = text
         for pattern, replacement in patterns:
-            if callable(replacement):
-                # 람다 함수인 경우
-                result = re.sub(pattern, replacement, result)
-            else:
-                result = re.sub(pattern, replacement, result)
+            result = re.sub(pattern, replacement, result)
+        
+        # 긴 한글 단어 분할 (별도 처리)
+        result = self._split_long_korean_words(result)
         
         # 최종 정리
         result = re.sub(r'\s+', ' ', result)
@@ -362,8 +378,27 @@ class SimpleRAGEngine:
         
         return result.strip()
     
+    def _split_long_korean_words(self, text):
+        """긴 한글 단어들을 분할"""
+        def split_word(match):
+            word = match.group(0)
+            if len(word) <= 8:
+                return word
+                
+            # 15자 이상이면 3등분
+            if len(word) > 15:
+                third = len(word) // 3
+                return word[:third] + ' ' + word[third:2*third] + ' ' + word[2*third:]
+            # 8자 이상이면 반으로
+            else:
+                half = len(word) // 2
+                return word[:half] + ' ' + word[half:]
+        
+        # 8자 이상 연속된 한글 단어 찾아서 분할
+        return re.sub(r'[가-힣]{8,}', split_word, text)
+    
     def _smart_split_word(self, word):
-        """긴 단어를 스마트하게 분할"""
+        """긴 단어를 스마트하게 분할 (호환성을 위해 유지)"""
         if len(word) <= 8:
             return word
             
