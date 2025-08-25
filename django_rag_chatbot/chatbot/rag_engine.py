@@ -26,9 +26,9 @@ class SimpleRAGEngine:
     def add_text_document(self, text, title="문서"):
         """텍스트를 청크로 나누어 저장"""
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,  # 더 작은 청크로 분할
-            chunk_overlap=150,
-            separators=["\n\n", "\n", ". ", "! ", "? ", " "]
+            chunk_size=500,  # 더 작은 청크로 세밀하게 분할
+            chunk_overlap=200,  # 오버랩 증가로 내용 누락 방지
+            separators=["\n\n", "\n", ". ", "! ", "? ", "。", "，", " "]
         )
         
         doc = Document(page_content=text, metadata={"source": title})
@@ -54,9 +54,9 @@ class SimpleRAGEngine:
                 return False, "지원하지 않는 파일 형식입니다."
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=800,
-                chunk_overlap=150,
-                separators=["\n\n", "\n", ". ", "! ", "? ", " "]
+                chunk_size=500,  # 더 작은 청크로 세밀하게 분할
+                chunk_overlap=200,  # 오버랩 증가로 내용 누락 방지
+                separators=["\n\n", "\n", ". ", "! ", "? ", "。", "，", " "]
             )
             chunks = text_splitter.split_documents(documents)
             self.documents.extend(chunks)
@@ -72,6 +72,7 @@ class SimpleRAGEngine:
             return []
         
         query_words = self._extract_keywords(query.lower())
+        print(f"[DEBUG] 검색 키워드: {query_words}")
         scored_docs = []
         
         for doc in self.documents:
@@ -83,6 +84,14 @@ class SimpleRAGEngine:
         
         # 점수순 정렬 후 상위 k개 반환
         scored_docs.sort(key=lambda x: x[1], reverse=True)
+        
+        # 디버그: 상위 3개 결과 출력
+        if scored_docs:
+            print(f"[DEBUG] 상위 3개 검색 결과:")
+            for i, (doc, score) in enumerate(scored_docs[:3]):
+                preview = doc.page_content[:100].replace('\n', ' ')
+                print(f"  {i+1}. 점수: {score}, 내용: {preview}...")
+        
         return [doc for doc, score in scored_docs[:k]]
     
     def _extract_keywords(self, query):
@@ -350,9 +359,9 @@ class SimpleRAGEngine:
         try:
             okt = Okt()
             
-            # 형태소 분석 후 띄어쓰기 적용
-            morphs = okt.morphs(text, normalize=False, stem=False)
-            pos_tags = okt.pos(text, normalize=False, stem=False)
+            # 형태소 분석 후 띄어쓰기 적용 (normalize, stem 파라미터 제거)
+            morphs = okt.morphs(text)
+            pos_tags = okt.pos(text)
             
             spaced_text = ""
             for i, (morph, pos) in enumerate(pos_tags):
