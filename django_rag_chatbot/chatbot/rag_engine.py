@@ -5,6 +5,16 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 import docx
 
+# ChromaDB 관련 임포트
+try:
+    import chromadb
+    from chromadb.utils import embedding_functions
+    CHROMADB_AVAILABLE = True
+    print("ChromaDB가 사용 가능합니다.")
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    print("ChromaDB 라이브러리가 설치되지 않음. 키워드 기반 검색만 사용합니다.")
+
 try:
     from pykospacing import spacing
     PYKOSPACING_AVAILABLE = True
@@ -18,13 +28,49 @@ try:
 except ImportError:
     KONLPY_AVAILABLE = False
 
-class SimpleRAGEngine:
+class HybridRAGEngine:
     def __init__(self):
-        self.documents = []  # 메모리에 문서 저장
-        print("간단한 키워드 기반 RAG 엔진을 사용합니다.")
+        self.documents = []  # 키워드 검색용 메모리 저장
+        
+        # ChromaDB 초기화
+        if CHROMADB_AVAILABLE:
+            try:
+                # 한국어 임베딩 모델 설정
+                self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name="jhgan/ko-sroberta-multitask"
+                )
+                
+                # ChromaDB 클라이언트 및 컬렉션 초기화
+                chroma_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
+                self.chroma_client = chromadb.PersistentClient(path=chroma_path)
+                
+                # 기존 컬렉션이 있으면 가져오고, 없으면 생성
+                try:
+                    self.collection = self.chroma_client.get_collection(
+                        name="documents",
+                        embedding_function=self.embedding_fn
+                    )
+                    print(f"기존 ChromaDB 컬렉션을 로드했습니다. 문서 수: {self.collection.count()}")
+                except:
+                    self.collection = self.chroma_client.create_collection(
+                        name="documents",
+                        embedding_function=self.embedding_fn
+                    )
+                    print("새로운 ChromaDB 컬렉션을 생성했습니다.")
+                
+                self.use_vector_search = True
+                print("하이브리드 RAG 엔진 (키워드 + 벡터 검색)을 사용합니다.")
+                
+            except Exception as e:
+                print(f"ChromaDB 초기화 실패: {e}")
+                self.use_vector_search = False
+                print("키워드 기반 검색으로 폴백합니다.")
+        else:
+            self.use_vector_search = False
+            print("간단한 키워드 기반 RAG 엔진을 사용합니다.")
     
     def add_text_document(self, text, title="문서"):
-        """텍스트를 청크로 나누어 저장"""
+        """텍스트를 청크로 나누어 키워드 검색과 벡터DB 모두에 저장"""
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=500,  # 더 작은 청크로 세밀하게 분할
             chunk_overlap=200,  # 오버랩 증가로 내용 누락 방지
@@ -33,12 +79,30 @@ class SimpleRAGEngine:
         
         doc = Document(page_content=text, metadata={"source": title})
         chunks = text_splitter.split_documents([doc])
+        
+        # 키워드 검색용 메모리 저장
         self.documents.extend(chunks)
+        
+        # ChromaDB에 벡터로 저장
+        if self.use_vector_search:
+            try:
+                documents_text = [chunk.page_content for chunk in chunks]
+                metadatas = [chunk.metadata for chunk in chunks]
+                ids = [f"{title}_{i}_{hash(chunk.page_content) % 10000}" for i, chunk in enumerate(chunks)]
+                
+                self.collection.add(
+                    documents=documents_text,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                print(f"{len(chunks)}개 청크를 ChromaDB에 추가했습니다.")
+            except Exception as e:
+                print(f"ChromaDB 저장 오류: {e}")
         
         return len(chunks)
     
     def add_file_document(self, file_path):
-        """파일을 로드하여 문서로 추가"""
+        """파일을 로드하여 키워드 검색과 벡터DB 모두에 저장"""
         try:
             if file_path.endswith('.pdf'):
                 loader = PyPDFLoader(file_path)
@@ -59,15 +123,99 @@ class SimpleRAGEngine:
                 separators=["\n\n", "\n", ". ", "! ", "? ", "。", "，", " "]
             )
             chunks = text_splitter.split_documents(documents)
+            
+            # 키워드 검색용 메모리 저장
             self.documents.extend(chunks)
+            
+            # ChromaDB에 벡터로 저장
+            if self.use_vector_search:
+                try:
+                    documents_text = [chunk.page_content for chunk in chunks]
+                    metadatas = [chunk.metadata for chunk in chunks]
+                    filename = os.path.basename(file_path)
+                    ids = [f"{filename}_{i}_{hash(chunk.page_content) % 10000}" for i, chunk in enumerate(chunks)]
+                    
+                    self.collection.add(
+                        documents=documents_text,
+                        metadatas=metadatas,
+                        ids=ids
+                    )
+                    print(f"파일 '{filename}'에서 {len(chunks)}개 청크를 ChromaDB에 추가했습니다.")
+                except Exception as e:
+                    print(f"ChromaDB 저장 오류: {e}")
             
             return True, f"{len(chunks)}개 청크가 추가되었습니다."
             
         except Exception as e:
             return False, f"파일 처리 중 오류: {str(e)}"
     
-    def search_documents(self, query, k=3):
-        """키워드 기반 문서 검색 (개선된 버전)"""
+    def search_documents(self, query, k=5):
+        """하이브리드 검색: 키워드 검색 + 벡터 검색 결합"""
+        if self.use_vector_search:
+            return self._hybrid_search(query, k)
+        else:
+            return self._keyword_search_only(query, k)
+    
+    def _hybrid_search(self, query, k=5):
+        """키워드 검색과 벡터 검색을 결합한 하이브리드 검색"""
+        print(f"하이브리드 검색 실행: '{query}'")
+        
+        # 1. 벡터 검색 (의미적 유사성)
+        vector_results = []
+        try:
+            chroma_results = self.collection.query(
+                query_texts=[query],
+                n_results=k*2,  # 더 많은 후보 확보
+                include=['documents', 'metadatas', 'distances']
+            )
+            
+            if chroma_results['documents'] and chroma_results['documents'][0]:
+                for i, (doc_text, metadata, distance) in enumerate(zip(
+                    chroma_results['documents'][0],
+                    chroma_results['metadatas'][0],
+                    chroma_results['distances'][0]
+                )):
+                    # 거리를 유사도 점수로 변환 (거리가 작을수록 유사도 높음)
+                    similarity_score = 1.0 / (1.0 + distance)
+                    doc_obj = Document(page_content=doc_text, metadata=metadata)
+                    vector_results.append((doc_obj, similarity_score, 'vector'))
+                    
+                print(f"벡터 검색 결과: {len(vector_results)}개")
+            
+        except Exception as e:
+            print(f"벡터 검색 오류: {e}")
+        
+        # 2. 키워드 검색 (기존 방식)
+        keyword_results = []
+        if self.documents:
+            query_words = self._extract_keywords(query.lower())
+            print(f"검색 키워드: {query_words}")
+            
+            for doc in self.documents:
+                content = doc.page_content.lower()
+                score = self._calculate_relevance_score(content, query_words, query.lower())
+                
+                if score > 0:
+                    # 키워드 점수를 0-1 범위로 정규화
+                    normalized_score = min(score / 100.0, 1.0)
+                    keyword_results.append((doc, normalized_score, 'keyword'))
+            
+            print(f"키워드 검색 결과: {len(keyword_results)}개")
+        
+        # 3. 결과 결합 및 중복 제거
+        combined_results = self._combine_search_results(vector_results, keyword_results, k)
+        
+        # 디버그 출력
+        if combined_results:
+            print(f"최종 하이브리드 결과 ({len(combined_results)}개):")
+            for i, (doc, final_score, sources) in enumerate(combined_results[:3]):
+                preview = doc.page_content[:80].replace('\n', ' ')
+                print(f"  {i+1}. 점수: {final_score:.3f} ({sources}) - {preview}...")
+        
+        return [doc for doc, score, sources in combined_results]
+    
+    def _keyword_search_only(self, query, k=5):
+        """키워드 기반 검색만 사용 (기존 방식)"""
         if not self.documents:
             return []
         
@@ -87,12 +235,68 @@ class SimpleRAGEngine:
         
         # 디버그: 상위 3개 결과 출력
         if scored_docs:
-            print(f"[DEBUG] 상위 3개 검색 결과:")
+            print(f"[DEBUG] 상위 {min(3, len(scored_docs))}개 검색 결과:")
             for i, (doc, score) in enumerate(scored_docs[:3]):
                 preview = doc.page_content[:100].replace('\n', ' ')
                 print(f"  {i+1}. 점수: {score}, 내용: {preview}...")
         
         return [doc for doc, score in scored_docs[:k]]
+    
+    def _combine_search_results(self, vector_results, keyword_results, k):
+        """벡터 검색과 키워드 검색 결과를 스마트하게 결합"""
+        # 문서 내용으로 중복 제거를 위한 딕셔너리
+        doc_scores = {}
+        
+        # 벡터 검색 결과 처리 (가중치: 0.6)
+        for doc, score, source in vector_results:
+            content_hash = hash(doc.page_content)
+            if content_hash not in doc_scores:
+                doc_scores[content_hash] = {
+                    'doc': doc,
+                    'vector_score': score * 0.6,
+                    'keyword_score': 0.0,
+                    'sources': set()
+                }
+            else:
+                doc_scores[content_hash]['vector_score'] = max(
+                    doc_scores[content_hash]['vector_score'], 
+                    score * 0.6
+                )
+            doc_scores[content_hash]['sources'].add('벡터')
+        
+        # 키워드 검색 결과 처리 (가중치: 0.4)
+        for doc, score, source in keyword_results:
+            content_hash = hash(doc.page_content)
+            if content_hash not in doc_scores:
+                doc_scores[content_hash] = {
+                    'doc': doc,
+                    'vector_score': 0.0,
+                    'keyword_score': score * 0.4,
+                    'sources': set()
+                }
+            else:
+                doc_scores[content_hash]['keyword_score'] = max(
+                    doc_scores[content_hash]['keyword_score'], 
+                    score * 0.4
+                )
+            doc_scores[content_hash]['sources'].add('키워드')
+        
+        # 최종 점수 계산 및 정렬
+        final_results = []
+        for content_hash, data in doc_scores.items():
+            # 하이브리드 점수: 벡터 점수 + 키워드 점수 + 결합 보너스
+            final_score = data['vector_score'] + data['keyword_score']
+            
+            # 두 방법 모두에서 찾은 경우 보너스 (높은 신뢰도)
+            if len(data['sources']) > 1:
+                final_score *= 1.2
+            
+            sources_str = '+'.join(sorted(data['sources']))
+            final_results.append((data['doc'], final_score, sources_str))
+        
+        # 점수순으로 정렬하여 상위 k개 반환
+        final_results.sort(key=lambda x: x[1], reverse=True)
+        return final_results[:k]
     
     def _extract_keywords(self, query):
         """쿼리에서 의미있는 키워드 추출 (개선된 버전)"""
@@ -234,27 +438,27 @@ class SimpleRAGEngine:
             content_sections = self._extract_structured_info(docs, main_keyword)
             
             # 구조화된 응답 생성
-            response_parts = [f'🔍 **{main_keyword.upper()}**\n']
+            response_parts = [f'**{main_keyword.upper()}**\n']
             
             if content_sections['definition']:
-                response_parts.append("**📖 정의:**")
+                response_parts.append("**정의:**")
                 response_parts.append(content_sections['definition'])
                 response_parts.append("")
             
             if content_sections['features']:
-                response_parts.append("**✨ 주요 특징:**")
+                response_parts.append("**주요 특징:**")
                 for feature in content_sections['features'][:5]:  # 최대 5개
                     response_parts.append(f"• {feature}")
                 response_parts.append("")
             
             if content_sections['advantages']:
-                response_parts.append("**✅ 장점:**")
+                response_parts.append("**장점:**")
                 for advantage in content_sections['advantages'][:4]:  # 최대 4개
                     response_parts.append(f"• {advantage}")
                 response_parts.append("")
             
             if content_sections['process']:
-                response_parts.append("**📋 과정/방법:**")
+                response_parts.append("**과정/방법:**")
                 for i, step in enumerate(content_sections['process'][:5], 1):  # 최대 5단계
                     response_parts.append(f"{i}. {step}")
                 response_parts.append("")
@@ -262,7 +466,7 @@ class SimpleRAGEngine:
             # 출처 표시
             sources = list(set([doc.metadata.get('source', '문서') for doc in docs[:2]]))
             source_names = [s.split('\\')[-1] if '\\' in s else s for s in sources]
-            response_parts.append(f"📚 출처: {', '.join(source_names)}")
+            response_parts.append(f"**출처:** {', '.join(source_names)}")
             
             return "\n".join(response_parts)
             
@@ -337,7 +541,7 @@ class SimpleRAGEngine:
     def _generate_safe_response(self, query, docs):
         """안전한 응답 생성 (개선된 버전)"""
         try:
-            response_parts = [f'💡 **"{query}"**에 대한 답변:\n']
+            response_parts = [f'**"{query}"**에 대한 답변:\n']
             
             # 최대 2개의 관련 문서 사용
             num_docs_to_use = min(2, len(docs))
@@ -363,7 +567,7 @@ class SimpleRAGEngine:
             # 출처 표시
             if sources:
                 source_names = [s.split('\\')[-1] if '\\' in s else s for s in sources]
-                response_parts.append(f"**📚 출처:** {', '.join(source_names[:2])}")
+                response_parts.append(f"**출처:** {', '.join(source_names[:2])}")
             
             # 내용 결합 (최대 800자)
             full_content = '\n\n'.join(combined_content)
@@ -374,9 +578,9 @@ class SimpleRAGEngine:
             
             # 추가 안내
             if len(docs) > 2:
-                response_parts.append(f"\n📄 추가로 {len(docs)-2}개의 관련 문서가 더 있습니다.")
+                response_parts.append(f"\n추가로 {len(docs)-2}개의 관련 문서가 더 있습니다.")
             
-            response_parts.append("\n💡 더 구체적인 질문을 해주시면 더 정확한 답변을 드릴게요!")
+            response_parts.append("\n더 구체적인 질문을 해주시면 더 정확한 답변을 드릴게요!")
             
             return "\n".join(response_parts)
             
@@ -385,7 +589,7 @@ class SimpleRAGEngine:
             # 최후의 수단 - 아주 간단한 응답
             try:
                 content = docs[0].page_content[:200] + "..."
-                return f'💡 **"{query}"**에 대한 답변:\n\n{content}\n\n💡 더 자세한 내용이 필요하시면 다시 질문해주세요!'
+                return f'**"{query}"**에 대한 답변:\n\n{content}\n\n더 자세한 내용이 필요하시면 다시 질문해주세요!'
             except:
                 return "문서를 찾았지만 응답을 생성하는 중 오류가 발생했습니다."
     
@@ -773,5 +977,73 @@ class SimpleRAGEngine:
             "문서별 청크": sources
         }
 
-# 전역 RAG 엔진 인스턴스
-rag_engine = SimpleRAGEngine()
+    def migrate_existing_documents_to_chroma(self):
+        """기존 메모리 문서들을 ChromaDB로 마이그레이션"""
+        if not self.use_vector_search:
+            print("ChromaDB가 비활성화되어 있어 마이그레이션을 건너뜁니다.")
+            return False, "ChromaDB 비활성화"
+        
+        if not self.documents:
+            print("마이그레이션할 문서가 없습니다.")
+            return True, "마이그레이션할 문서 없음"
+        
+        try:
+            # 기존 ChromaDB 컬렉션 내용 확인
+            existing_count = self.collection.count()
+            print(f"기존 ChromaDB 문서 수: {existing_count}")
+            
+            # 중복 방지를 위해 기존 문서 해시 수집
+            existing_hashes = set()
+            if existing_count > 0:
+                existing_docs = self.collection.get()
+                for doc_text in existing_docs['documents']:
+                    existing_hashes.add(hash(doc_text))
+            
+            # 새로 추가할 문서들 필터링
+            new_documents = []
+            new_metadatas = []
+            new_ids = []
+            
+            for i, doc in enumerate(self.documents):
+                doc_hash = hash(doc.page_content)
+                if doc_hash not in existing_hashes:
+                    new_documents.append(doc.page_content)
+                    new_metadatas.append(doc.metadata)
+                    source_name = doc.metadata.get('source', 'unknown')
+                    new_ids.append(f"migrated_{source_name}_{i}_{doc_hash % 10000}")
+            
+            if new_documents:
+                self.collection.add(
+                    documents=new_documents,
+                    metadatas=new_metadatas,
+                    ids=new_ids
+                )
+                print(f"{len(new_documents)}개 문서를 ChromaDB로 마이그레이션 완료!")
+                return True, f"{len(new_documents)}개 문서 마이그레이션 완료"
+            else:
+                print("모든 문서가 이미 ChromaDB에 존재합니다.")
+                return True, "중복 없음 - 마이그레이션 생략"
+                
+        except Exception as e:
+            error_msg = f"마이그레이션 중 오류 발생: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+    
+    def get_chroma_stats(self):
+        """ChromaDB 통계 정보 반환"""
+        if not self.use_vector_search:
+            return {"status": "ChromaDB 비활성화"}
+        
+        try:
+            count = self.collection.count()
+            return {
+                "status": "활성화",
+                "총 벡터 문서 수": count,
+                "컬렉션 이름": "documents",
+                "임베딩 모델": "jhgan/ko-sroberta-multitask"
+            }
+        except Exception as e:
+            return {"status": f"오류: {str(e)}"}
+
+# 전역 RAG 엔진 인스턴스 (하이브리드 엔진으로 업그레이드)
+rag_engine = HybridRAGEngine()
