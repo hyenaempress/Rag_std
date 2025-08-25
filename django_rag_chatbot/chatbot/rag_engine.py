@@ -5,6 +5,19 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 import docx
 
+try:
+    from pykospacing import spacing
+    PYKOSPACING_AVAILABLE = True
+except ImportError:
+    PYKOSPACING_AVAILABLE = False
+    print("PyKoSpacing 라이브러리가 설치되지 않음. 기본 띄어쓰기 복원 방법을 사용합니다.")
+
+try:
+    from konlpy.tag import Okt
+    KONLPY_AVAILABLE = True
+except ImportError:
+    KONLPY_AVAILABLE = False
+
 class SimpleRAGEngine:
     def __init__(self):
         self.documents = []  # 메모리에 문서 저장
@@ -245,46 +258,127 @@ class SimpleRAGEngine:
         content = re.sub(r'[^\w\s가-힣,.!?():\-]', '', content)
         content = content.strip()
         
-        # 2. 띄어쓰기 복원 (고급 버전 사용)
-        content = self._restore_spacing_advanced(content)
+        # 2. 띄어쓰기 복원 (개선된 함수 사용)
+        content = self.restore_korean_spacing(content)
         
         return content
     
-    def _restore_spacing_advanced(self, text):
-        """고급 띄어쓰기 복원 (KoNLPy 사용)"""
-        try:
-            # KoNLPy 사용 (이미 설치됨)
-            from konlpy.tag import Okt
+    def restore_korean_spacing(self, text):
+        """한국어 띄어쓰기 복원 함수 - 3단계 접근법"""
+        if not text or len(text.strip()) == 0:
+            return text
             
+        try:
+            # 1단계: PyKoSpacing 사용 (가장 좋은 품질)
+            if PYKOSPACING_AVAILABLE:
+                return spacing(text)
+            
+            # 2단계: KoNLPy 사용 (형태소 분석 기반)
+            elif KONLPY_AVAILABLE:
+                return self._restore_spacing_with_konlpy(text)
+            
+            # 3단계: 패턴 매칭 기반 (라이브러리 없이)
+            else:
+                return self._restore_spacing_with_patterns(text)
+                
+        except Exception as e:
+            print(f"띄어쓰기 복원 오류: {e}")
+            return self._restore_spacing_with_patterns(text)
+    
+    def _restore_spacing_with_konlpy(self, text):
+        """KoNLPy를 사용한 띄어쓰기 복원"""
+        try:
             okt = Okt()
             
             # 형태소 분석 후 띄어쓰기 적용
-            # normalize와 stem을 False로 해서 원본 형태 유지
             morphs = okt.morphs(text, normalize=False, stem=False)
+            pos_tags = okt.pos(text, normalize=False, stem=False)
             
-            # 형태소들을 적절히 합치기
             spaced_text = ""
-            for i, morph in enumerate(morphs):
+            for i, (morph, pos) in enumerate(pos_tags):
                 if i == 0:
                     spaced_text += morph
                 else:
-                    # 조사나 어미는 붙여쓰고, 나머지는 띄어쓰기
-                    prev_morph = morphs[i-1]
-                    pos = okt.pos([morph])[0][1] if okt.pos([morph]) else ""
-                    
-                    if pos in ['Josa', 'Eomi', 'Suffix']:  # 조사, 어미, 접미사
+                    # 조사, 어미, 접미사는 붙여쓰고 나머지는 띄어쓰기
+                    if pos in ['Josa', 'Eomi', 'Suffix']:
                         spaced_text += morph
                     else:
                         spaced_text += " " + morph
             
             return spaced_text
             
-        except ImportError:
-            print("KoNLPy import 실패, 기본 방법 사용")
-            return self._restore_spacing_enhanced(text)
         except Exception as e:
             print(f"KoNLPy 처리 중 오류: {e}")
-            return self._restore_spacing_enhanced(text)
+            return self._restore_spacing_with_patterns(text)
+    
+    def _restore_spacing_with_patterns(self, text):
+        """패턴 매칭을 사용한 띄어쓰기 복원 (라이브러리 없이)"""
+        if not text:
+            return text
+        
+        # 기본 정리
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        patterns = [
+            # 문장부호 뒤에 띄어쓰기
+            (r'([.!?])([가-힣A-Za-z0-9])', r'\1 \2'),
+            (r'([,;:])([가-힣A-Za-z0-9])', r'\1 \2'),
+            
+            # 숫자와 문자 사이
+            (r'([0-9])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([0-9])', r'\1 \2'),
+            
+            # 영어와 한글 사이
+            (r'([A-Za-z])([가-힣])', r'\1 \2'),
+            (r'([가-힣])([A-Za-z])', r'\1 \2'),
+            
+            # 자주 사용되는 단어들 뒤
+            (r'(이다|하다|되다|있다|없다|같다|이며|라고|이라고|한다|된다)([가-힣])', r'\1 \2'),
+            (r'(그리고|하지만|그러나|또한|따라서|즉|예를들어|때문에)([가-힣])', r'\1 \2'),
+            (r'(경우에|관련하여|대하여|통하여|위하여|의하여)([가-힣])', r'\1 \2'),
+            
+            # 기술용어와 한글 사이
+            (r'(AI|ML|LLM|RAG|API|GPU|CPU|NLP|CNN|RNN|IoT|VR|AR)([가-힣])', r'\1 \2'),
+            (r'([가-힣])(AI|ML|LLM|RAG|API|GPU|CPU|NLP|CNN|RNN|IoT|VR|AR)', r'\1 \2'),
+            
+            # 조사 앞뒤 처리 (조심스럽게)
+            (r'([가-힣])(은는이가을를에서의로와과도만큼부터까지마다에게께서)([가-힣A-Z])', r'\1\2 \3'),
+            
+            # 긴 한글 단어 분할
+            (r'([가-힣]{8,})([가-힣]{3,})', lambda m: self._smart_split_word(m.group(0))),
+        ]
+        
+        result = text
+        for pattern, replacement in patterns:
+            if callable(replacement):
+                # 람다 함수인 경우
+                result = re.sub(pattern, replacement, result)
+            else:
+                result = re.sub(pattern, replacement, result)
+        
+        # 최종 정리
+        result = re.sub(r'\s+', ' ', result)
+        result = re.sub(r' +([,.!?;:])', r'\1', result)
+        
+        return result.strip()
+    
+    def _smart_split_word(self, word):
+        """긴 단어를 스마트하게 분할"""
+        if len(word) <= 8:
+            return word
+            
+        # 15자 이상이면 3등분
+        if len(word) > 15:
+            third = len(word) // 3
+            return word[:third] + ' ' + word[third:2*third] + ' ' + word[2*third:]
+        # 8자 이상이면 반으로
+        else:
+            half = len(word) // 2
+            return word[:half] + ' ' + word[half:]
+
+    def _restore_spacing_advanced(self, text):
+        """고급 띄어쓰기 복원 (기존 함수 유지 - 호환성을 위해)"""
+        return self.restore_korean_spacing(text)
     
     def _restore_spacing_enhanced(self, text):
         """강화된 띄어쓰기 복원 (라이브러리 없이) - 한국어 특화"""

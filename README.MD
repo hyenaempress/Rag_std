@@ -33,6 +33,10 @@ pip install -r requirements.txt
 pip install langchain-community
 pip install python-docx
 
+# 3-1. 띄어쓰기 복원 라이브러리 (선택사항)
+pip install pykospacing     # 최고 품질 (권장)
+pip install konlpy         # 형태소 분석 기반
+
 
 # 4. 데이터베이스 설정
 python manage.py makemigrations
@@ -131,6 +135,7 @@ django_rag_chatbot/
 - 기본 문서 업로드 및 텍스트 입력
 - **문서 처리**: LangChain, PyPDF, python-docx
 - **검색**: scikit-learn TF-IDF 기반 키워드 검색 시스템
+- **✨ 띄어쓰기 복원**: 3단계 접근법 (PyKoSpacing → KoNLPy → 패턴매칭)
 - Django 기반 웹 인터페이스 구현
 
 *비즈니스 가치*: 최소 기능으로 사용자 니즈 검증 및 피드백 수집
@@ -251,6 +256,8 @@ MIT License - [LICENSE](LICENSE) 파일 참조
 - [LangChain](https://github.com/langchain-ai/langchain) - 문서 처리 프레임워크
 - [Django](https://www.djangoproject.com/) - 웹 프레임워크  
 - [scikit-learn](https://scikit-learn.org/) - 머신러닝 라이브러리
+- [PyKoSpacing](https://github.com/haven-jeon/PyKoSpacing) - 한국어 띄어쓰기 복원
+- [KoNLPy](https://github.com/konlpy/konlpy) - 한국어 자연어 처리
 
 ---
 
