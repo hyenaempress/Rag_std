@@ -33,6 +33,10 @@ pip install -r requirements.txt
 pip install langchain-community
 pip install python-docx
 
+# 3-1. 띄어쓰기 복원 라이브러리 (선택사항)
+pip install pykospacing     # 최고 품질 (권장)
+pip install konlpy         # 형태소 분석 기반
+
 
 # 4. 데이터베이스 설정
 python manage.py makemigrations
@@ -125,12 +129,46 @@ django_rag_chatbot/
 └── requirements.txt
 ```
 
+## 📅 변경 이력
+
+### 2025-08-25 업데이트
+- **✨ 한국어 띄어쓰기 복원 기능 추가**
+  - 3단계 접근법 구현: PyKoSpacing → KoNLPy → 패턴매칭
+  - `restore_korean_spacing()` 함수 추가
+  - 라이브러리 없어도 기본 패턴 매칭으로 작동
+  - `_simple_clean_text()`에서 띄어쓰기 복원 함수 통합
+- **🔍 검색 키워드 추출 알고리즘 개선**
+  - 불용어 처리 로직 개선 (질문 단어 구분)
+  - 3글자 이상 단어는 핵심 키워드로 자동 인식
+  - 조사/어미 자동 제거 기능
+  - 키워드 길이별 가중치 적용 (5글자 이상: 10배, 3글자 이상: 3배)
+- **📝 응답 생성 개선**
+  - 응답 길이 확대: 300자 → 800자
+  - 다중 문서 활용: 최대 2개 문서에서 정보 결합
+  - 추가 관련 문서 존재 시 안내 메시지 표시
+  - 구조화된 요약 응답 생성 기능 추가
+- **🎨 프론트엔드 마크다운 렌더링**
+  - `parseMarkdown()` 함수 추가로 마크다운 → HTML 변환
+  - Bold, Italic 텍스트 지원
+  - 이모지 크기 확대 표시
+  - XSS 공격 방지 처리
+- **🐛 버그 수정**
+  - 람다 함수 오류 해결 (별도 함수로 분리)
+  - 긴 한글 단어 분할 로직 안정화
+  - 검색 점수 계산 알고리즘 최적화
+  - KoNLPy 파라미터 오류 수정
+- **⚠️ 현재 시스템의 한계 확인**
+  - 키워드 기반 검색으로는 의미적 유사성 파악 불가
+  - "할루시네이션" 같은 전문 용어 검색 시 정확도 부족
+  - **결론: 벡터 DB 도입이 필요함**
+
 ## 🔧 개발 로드맵 & 비즈니스 가치
 
 ### ✅ v1.0 (현재) - MVP 검증
 - 기본 문서 업로드 및 텍스트 입력
 - **문서 처리**: LangChain, PyPDF, python-docx
 - **검색**: scikit-learn TF-IDF 기반 키워드 검색 시스템
+- **✨ 띄어쓰기 복원**: 3단계 접근법 (PyKoSpacing → KoNLPy → 패턴매칭)
 - Django 기반 웹 인터페이스 구현
 
 *비즈니스 가치*: 최소 기능으로 사용자 니즈 검증 및 피드백 수집
@@ -142,9 +180,32 @@ django_rag_chatbot/
 - 파일 형식/용량 검증 및 보안 강화
 - 예외 처리 및 로깅 시스템 구축
 
-**데이터 영속성**
-- 벡터 데이터베이스 연동 (ChromaDB, FAISS)
-- 서버 재시작 후에도 데이터 유지
+**🎯 벡터 DB 도입 (최우선 과제)**
+현재 키워드 기반 검색의 한계로 인해 벡터 DB 도입이 필수적으로 확인됨
+
+```python
+# ChromaDB 또는 FAISS 사용 예시
+from langchain.vectorstores import Chroma
+from langchain.embeddings import HuggingFaceEmbeddings
+
+# 한국어 임베딩 모델
+embeddings = HuggingFaceEmbeddings(
+    model_name="jhgan/ko-sroberta-multitask"
+)
+
+# 벡터 저장소
+vector_store = Chroma(
+    embedding_function=embeddings,
+    persist_directory="./chroma_db"
+)
+```
+
+**벡터 DB 도입 시 개선점:**
+- ✅ **의미적 유사성 검색**: 키워드가 없어도 의미가 비슷한 내용 검색
+- ✅ **문맥 이해**: 전체 문맥을 고려한 정확한 검색
+- ✅ **동의어/유사어 자동 처리**: "할루시네이션", "환각", "허위정보" 모두 검색
+- ✅ **더 정확한 관련성 점수**: 코사인 유사도 기반 정밀한 매칭
+- ✅ **서버 재시작 후에도 데이터 유지**: 영속성 보장
 
 **검색 성능 (TF-IDF → Dense → 하이브리드 진화)**
 - BM25 + Dense 하이브리드 검색 → *검색 정확도 30% 향상 목표*
@@ -251,6 +312,8 @@ MIT License - [LICENSE](LICENSE) 파일 참조
 - [LangChain](https://github.com/langchain-ai/langchain) - 문서 처리 프레임워크
 - [Django](https://www.djangoproject.com/) - 웹 프레임워크  
 - [scikit-learn](https://scikit-learn.org/) - 머신러닝 라이브러리
+- [PyKoSpacing](https://github.com/haven-jeon/PyKoSpacing) - 한국어 띄어쓰기 복원
+- [KoNLPy](https://github.com/konlpy/konlpy) - 한국어 자연어 처리
 
 ---
 
