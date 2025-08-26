@@ -2,6 +2,11 @@
 
 Django 기반의 Retrieval-Augmented Generation (RAG) 챗봇으로, 문서를 업로드하고 내용에 기반한 질문응답을 제공합니다.
 
+## 버전안내 
+- 해당 버전은 벡터 DB가 없는 버전입니다. 다른 브랜치에서 개선 작업중임으로 참고해주세요
+- add_ChromaVectorDBVer02.02 (2025-08-25 가중치 업데이트 버전에서 Chroma빌드 버전)
+- add_ChromaVectorDBVer02.00 (2025-08-25 가중치 업데이트 없이 Chroma빌드 버전)
+
 ![RAG Chatbot Demo](./ss2025-08-25.png)
 
 ## ✨ 주요 기능
