@@ -305,8 +305,7 @@ python manage.py load_test --concurrent_users=50 --duration=300s
 
 ## 📄 라이선스
 
-MIT License - [LICENSE](LICENSE) 파일 참조
-
+ -CC BY-NC-SA 4.0 (Creative Commons, 저작자표시-비영리-동일조건변경허락) [LICENSE](LICENSE) 파일 참조
 ## 🙏 오픈소스 라이브러리
 
 - [LangChain](https://github.com/langchain-ai/langchain) - 문서 처리 프레임워크
